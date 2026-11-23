@@ -315,11 +315,15 @@ export class Taxi {
     let vF = this.vx * fx + this.vz * fz;
     let vR = this.vx * rx + this.vz * rz;
 
-    // automatic gearbox: hold brake at standstill to engage reverse
+    // automatic gearbox: once stopped, release the brake and press it again (and hold) to select reverse.
+    // Simply holding the brake while you wait at a kerb keeps you stopped in D.
+    const brakeDown = brake > 0.5;
     if (this.gear === 'D') {
-      if (Math.abs(vF) < 0.3 && brake > 0.5 && throttle < 0.1 && !input.handbrake) {
+      if (Math.abs(vF) < 0.3 && !brakeDown) this.reverseArmed = true;
+      if (Math.abs(vF) > 0.6 || throttle > 0.1) this.reverseArmed = false;
+      if (this.reverseArmed && brakeDown && Math.abs(vF) < 0.3 && throttle < 0.1 && !input.handbrake) {
         this.reverseHold += dt;
-        if (this.reverseHold > 0.35) { this.gear = 'R'; this.reverseHold = 0; }
+        if (this.reverseHold > 0.45) { this.gear = 'R'; this.reverseHold = 0; this.reverseArmed = false; }
       } else this.reverseHold = 0;
     } else if (this.gear === 'R') {
       if (Math.abs(vF) < 0.3 && throttle > 0.5 && brake < 0.1) {

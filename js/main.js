@@ -692,7 +692,7 @@ function boardPassenger() {
   F.chatsLeft = 2;
   F.cool = {};
   const r = city.route(taxi.x, taxi.z, taxi.fwdX, taxi.fwdZ, F.dest);
-  F.expected = (r ? r.len : 600) / 8 + 25;
+  F.expected = (r ? r.len : 600) / 6 + 35; // seconds: allows for lights and traffic
   G.route = r;
   setTimeout(() => {
     if (G.fare !== F) return;
@@ -871,7 +871,9 @@ function updateFares(dt) {
       if (F.pax.mood < 8 && !F.bail) {
         F.bail = true;
         say("That's it — pull over and let me out here!");
-        F.dest = { x: taxi.x + taxi.fwdX * 25, z: taxi.z + taxi.fwdZ * 25, name: 'Right here (angry passenger)', fx: 0, fz: 0 };
+        const bx = taxi.x + taxi.fwdX * 15, bz = taxi.z + taxi.fwdZ * 15;
+        const seg = city.nearestSegment(bx, bz);
+        F.dest = { x: bx, z: bz, name: 'Right here (angry passenger)', fx: 0, fz: 0, nodes: [seg[0], seg[1]] };
       }
       const d = Math.hypot(F.dest.x - taxi.x, F.dest.z - taxi.z);
       if (d < 22) {
@@ -926,7 +928,7 @@ function updateRules(dt) {
       if (st === 'R') {
         const camOn = node.id % 3 !== 0;
         moodHit(-8, 'Was that a red light?!', 'red', 3);
-        if (camOn) { fine(10000, '📸 Red light camera — £100 fine'); flash(); }
+        if (camOn) { fine(10000, '📸 Red light camera — £100 fine', 'redlight'); flash(); }
         else toast('You ran a red light! (no camera this time)', 'bad');
       }
     }
@@ -938,14 +940,19 @@ function updateRules(dt) {
     if (c.cool <= 0 && Math.hypot(c.x - taxi.x, c.z - taxi.z) < 12 && mph > lim * 1.1 + 2) {
       c.cool = 10;
       flash();
-      fine(10000, `📸 Speed camera — ${Math.round(mph)} in a ${lim}: £100 fine`);
+      fine(10000, `📸 Speed camera — ${Math.round(mph)} in a ${lim}: £100 fine`, 'speed');
     }
   }
-  if (taxi.lastImpact > 3.5) {
-    const cost = Math.round(taxi.lastImpact * 600);
-    fine(cost, `💥 Bodywork damage — ${fmtMoney(cost)}`);
+  // crash damage: one charge per impact (scraping along a wall doesn't keep billing you)
+  G.crashCool = Math.max(0, (G.crashCool || 0) - dt);
+  if (taxi.lastImpact > 1 && G.crashCool <= 0) {
+    G.crashCool = 1.2;
     sound.crash(taxi.lastImpact);
-  } else if (taxi.lastImpact > 1) sound.crash(taxi.lastImpact);
+    if (taxi.lastImpact > 4) {
+      const cost = Math.min(15000, Math.round((taxi.lastImpact - 3) * 800));
+      fine(cost, `💥 Bodywork damage — ${fmtMoney(cost)}`, 'damage');
+    }
+  }
   // battery & range extender
   const moved = Math.abs(taxi.speed) * dt;
   if (G.battery > 0) G.battery = Math.max(0, G.battery - moved / 45000);
@@ -965,8 +972,10 @@ function updateRules(dt) {
     }
   }
 }
-function fine(pence, msg) {
+function fine(pence, msg, kind = 'fine') {
   G.fines += pence;
+  G.fineLog = G.fineLog || {};
+  G.fineLog[kind] = (G.fineLog[kind] || 0) + pence;
   sound.fine();
   toast(msg, 'bad');
 }
@@ -1351,6 +1360,24 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (G.mode === 'driving') {
+    simStep(dt);
+    sound.update(taxi.speed, input.throttle, G.raining, G.cam === 'cockpit');
+    taxi.model.userData.sign.userData.setLit(forHire());
+    updateCamera(dt);
+    updateHUD(dt);
+  } else if (G.mode === 'title') {
+    titleCamera(dt);
+    traffic.update(dt, { x: 400, z: 560, vx: 0, vz: 0 }, null);
+    crowd.update(dt, 400, 560);
+  } else if (G.mode === 'paused' || G.mode === 'summary') {
+    sound.update(0, 0, false, true);
+  }
+  renderFrame(dt, now);
+}
+
+/** one tick of game simulation (no rendering) */
+function simStep(dt) {
+  {
     readInput(dt);
     const moved = taxi.update(dt, input, city, traffic);
     meter.update(dt, taxi.speed, moved);
@@ -1378,17 +1405,10 @@ function frame(now) {
     const F = G.fare;
     beacon.visible = !!(F && F.stage === 'onboard' && !G.knowledge && F.dest);
     if (beacon.visible) beacon.position.set(F.dest.x, 30, F.dest.z);
-    sound.update(taxi.speed, input.throttle, G.raining, G.cam === 'cockpit');
-    taxi.model.userData.sign.userData.setLit(forHire());
-    updateCamera(dt);
-    updateHUD(dt);
-  } else if (G.mode === 'title') {
-    titleCamera(dt);
-    traffic.update(dt, { x: 400, z: 560, vx: 0, vz: 0 }, null);
-    crowd.update(dt, 400, 560);
-  } else if (G.mode === 'paused' || G.mode === 'summary') {
-    sound.update(0, 0, false, true);
   }
+}
+
+function renderFrame(dt, now) {
   city.update(dt, { minutes: G.minutes % 1440 });
   updateEnvironment(dt);
   // rear-view mirror
@@ -1414,5 +1434,16 @@ function frame(now) {
 requestAnimationFrame(frame);
 
 // debugging hook
-window.__game = { G, taxi, city, traffic, meter, payment, renderer, debug: { pickUp, boardPassenger, startPayment, meterKey, toggleLocks, addHailer, onKeyPress } };
+window.__game = {
+  sim(seconds, hook) {
+    const step = 1 / 30;
+    for (let t = 0; t < seconds; t += step) {
+      if (hook) hook();
+      if (G.mode !== 'driving') break;
+      simStep(step);
+      city.time += step;
+    }
+  },
+  keys, touch, input,
+  G, taxi, city, traffic, meter, payment, renderer, debug: { pickUp, boardPassenger, startPayment, meterKey, toggleLocks, addHailer, onKeyPress } };
 void angleWrap; void mapScale;
