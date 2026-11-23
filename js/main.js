@@ -1330,7 +1330,7 @@ function startGame() {
   G.autoLights = true;
   if (nightLevel > 0.4) taxi.headlights = true;
   toast('Your shift has started. Look for someone with their arm up 🙋', 'good');
-  if (isTouch) setTimeout(() => toast('Drive on the <b>left</b>! Drag the wheel to steer. Tap the yellow button when it appears — everything else is in ☰ CAB.'), 1500);
+  if (isTouch) setTimeout(() => toast('Drive on the <b>left</b>! Slide a finger on the left side to steer. Tap the yellow button when it appears — everything else is in ☰ CAB.'), 1500);
   else setTimeout(() => toast('Drive on the <b>left</b>! <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive, <kbd>C</kbd> to change camera, <kbd>F1</kbd> for all controls.'), 1500);
 }
 $('start-btn').addEventListener('click', startGame);
