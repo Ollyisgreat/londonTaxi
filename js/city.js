@@ -6,6 +6,7 @@ import {
 import { GeoBuilder, seededRandom, makeCanvas, canvasTex, clamp } from './util.js';
 import {
   makeFacade, makeShops, makeAsphalt, makePaving, makeGrass, makeStreetSign, makeLabel, drawClockFace,
+  heightToNormal, noiseHeight, dataTex, makeWaterNormal, makeGlow, pavingHeight, noiseRough,
   FACADE_U, FACADE_V, SHOP_W, SHOP_H, SHOP_N,
 } from './textures.js';
 
@@ -62,24 +63,30 @@ export class City {
   makeMaterials() {
     const std = (o) => new THREE.MeshStandardMaterial(o);
     this.mat = {};
-    this.mat.road = std({ map: makeAsphalt(), roughness: 0.92 });
-    this.mat.pave = std({ map: makePaving(), roughness: 0.9 });
-    this.mat.grass = std({ map: makeGrass(), roughness: 1 });
+    const asphaltN = dataTex(heightToNormal(noiseHeight(256, 3, 6000, 0.4, 1.6, 128, 70), 2.5));
+    const asphaltR = dataTex(noiseRough(256, 5, 0.75, 1.0));
+    this.mat.road = std({ map: makeAsphalt(), normalMap: asphaltN, normalScale: new THREE.Vector2(0.6, 0.6), roughnessMap: asphaltR, roughness: 1 });
+    this.asphaltR = asphaltR;
+    this.mat.pave = std({ map: makePaving(), normalMap: dataTex(heightToNormal(pavingHeight(), 3)), roughness: 0.85 });
+    this.mat.grass = std({ map: makeGrass(), normalMap: dataTex(heightToNormal(noiseHeight(256, 8, 9000, 0.5, 1.5, 128, 90), 3)), roughness: 1 });
     this.mat.detail = std({ vertexColors: true, roughness: 0.82 });
     this.mat.dbl = std({ vertexColors: true, roughness: 0.6, metalness: 0.2, side: THREE.DoubleSide });
     this.mat.mark = std({ vertexColors: true, roughness: 0.75, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    this.mat.water = std({ color: C.water, roughness: 0.08, metalness: 0.35 });
+    this.waterNormal = makeWaterNormal();
+    this.waterNormal.repeat.set(1, 1);
+    this.mat.water = new THREE.MeshPhysicalMaterial({ color: '#1f3a42', roughness: 0.06, metalness: 0.0, normalMap: this.waterNormal, normalScale: new THREE.Vector2(0.35, 0.35), clearcoat: 0.3, envMapIntensity: 1.4 });
     this.mat.glass = std({ color: '#9cc0d6', roughness: 0.08, metalness: 0.9 });
     this.mat.fac = {};
     STYLES.forEach((s, i) => {
-      const { map, em } = makeFacade(s, 100 + i * 17);
-      const m = std({ map, emissiveMap: em, emissive: 0xffffff, emissiveIntensity: 0, roughness: s === 'glass' ? 0.25 : 0.85, metalness: s === 'glass' ? 0.6 : 0 });
+      const { map, em, rough, normal } = makeFacade(s, 100 + i * 17);
+      const m = std({ map, emissiveMap: em, emissive: 0xffffff, emissiveIntensity: 0, roughnessMap: rough, metalnessMap: rough, roughness: 1, metalness: 1, normalMap: normal, normalScale: new THREE.Vector2(1, 1), envMapIntensity: 1.2 });
       this.mat.fac[s] = m;
       this.nightMats.push([m, 1.0]);
     });
     const sh = makeShops(55);
-    this.mat.shop = std({ map: sh.map, emissiveMap: sh.em, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.6 });
-    this.nightMats.push([this.mat.shop, 1.4]);
+    this.mat.shop = std({ map: sh.map, emissiveMap: sh.em, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.3, metalness: 0.1 });
+    this.nightMats.push([this.mat.shop, 0.55]);
+    this.mat.shop.emissive.set('#ffd9a8');
     this.mat.lampHead = std({ color: '#fff4d0', emissive: '#ffd890', emissiveIntensity: 0.1 });
     this.lampMat = this.mat.lampHead;
 
@@ -1090,10 +1097,36 @@ export class City {
     const poleMat = new THREE.MeshStandardMaterial({ color: '#23302a', roughness: 0.6, metalness: 0.4 });
     inst(new THREE.CylinderGeometry(0.07, 0.11, 6, 6), poleMat, this.lamps, (o, [x, z]) => { o.position.set(x, 3, z); });
     inst(new THREE.CylinderGeometry(0.18, 0.28, 0.6, 6), this.lampMat, this.lamps, (o, [x, z]) => { o.position.set(x, 6.1, z); }, false);
+    // pools of warm light under each street lamp (visible at night)
+    this.poolMat = new THREE.MeshBasicMaterial({ map: makeGlow('rgba(255,196,120,1)'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const poolGeo = new THREE.PlaneGeometry(16, 16).rotateX(-Math.PI / 2);
+    const pools = inst(poolGeo, this.poolMat, this.lamps, (o, [x, z]) => { o.position.set(x, 0.2, z); }, false);
+    pools.receiveShadow = false;
+    pools.renderOrder = 2;
+    // a glowing halo around each lamp head
+    this.haloMat = new THREE.SpriteMaterial({ map: makeGlow('rgba(255,220,170,1)'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    const haloGeo = new THREE.PlaneGeometry(2.2, 2.2);
+    this.halos = new THREE.InstancedMesh(haloGeo, new THREE.MeshBasicMaterial({ map: this.haloMat.map, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), this.lamps.length);
+    this.halos.frustumCulled = false;
+    this.group.add(this.halos);
+    this.haloQ = new THREE.Quaternion();
     const trunkMat = new THREE.MeshStandardMaterial({ color: '#6b5a45', roughness: 1 });
-    const leafMat = new THREE.MeshStandardMaterial({ color: '#4f7036', roughness: 0.95, flatShading: true });
+    const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
     inst(new THREE.CylinderGeometry(0.2, 0.3, 4, 6), trunkMat, this.trees, (o, [x, z, s]) => { o.position.set(x, 2 * s, z); o.scale.set(s, s, s); o.rotation.set(0, 0, 0); });
-    const crown = new THREE.IcosahedronGeometry(3, 1);
+    // clumpy crown made of several lumps with colour variation
+    const cb = new GeoBuilder();
+    const tr = seededRandom(31);
+    const lumps = [[0, 0, 0, 2.4], [1.4, 0.6, 0.4, 1.7], [-1.3, 0.4, -0.6, 1.8], [0.3, 1.5, -1.0, 1.6], [-0.4, 1.2, 1.3, 1.6], [0.9, -0.5, -1.3, 1.5], [-1.0, -0.4, 1.1, 1.5]];
+    const ico = new THREE.IcosahedronGeometry(1, 2);
+    for (const [lx, ly, lz, lr] of lumps) {
+      const g = ico.clone();
+      const p = g.attributes.position;
+      for (let i = 0; i < p.count; i++) { const k = 0.82 + tr() * 0.3; p.setXYZ(i, p.getX(i) * k, p.getY(i) * k, p.getZ(i) * k); }
+      g.computeVertexNormals();
+      const c = new THREE.Color().setHSL(0.24 + tr() * 0.06, 0.45 + tr() * 0.15, 0.22 + tr() * 0.1);
+      cb.geo(g, lx, ly, lz, c, 0, 0, 0, lr, lr * 0.9, lr);
+    }
+    const crown = cb.build();
     inst(crown, leafMat, this.trees, (o, [x, z, s]) => { o.position.set(x, 5.6 * s, z); o.scale.set(s, s * 1.15, s); o.rotation.set(0, x * 0.37, 0); });
     const red = new THREE.MeshStandardMaterial({ color: '#c8102e', roughness: 0.45 });
     inst(new THREE.BoxGeometry(1, 2.5, 1), red, this.phoneBoxes, (o, [x, z]) => { o.position.set(x, 1.4, z); o.rotation.set(0, 0, 0); });
@@ -1315,11 +1348,33 @@ export class City {
   // ---------------------------------------------------------------- per-frame
   setNight(n) {
     for (const [m, k, base = 0] of this.nightMats) m.emissiveIntensity = base + n * k;
-    this.lampMat.emissiveIntensity = 0.15 + n * 4;
+    this.lampMat.emissiveIntensity = 0.15 + n * 6;
+    const k = Math.max(0, (n - 0.35) / 0.65);
+    if (this.poolMat) this.poolMat.opacity = k * 0.55;
+    if (this.halos) this.halos.material.opacity = k * 0.9;
+    this.halos && (this.halos.visible = k > 0.01);
+  }
+
+  /** orient lamp halos to face the camera (cheap billboards) */
+  updateHalos(camera) {
+    if (!this.halos || !this.halos.visible) return;
+    const o = new THREE.Object3D();
+    o.quaternion.copy(camera.quaternion);
+    const cx = camera.position.x, cz = camera.position.z;
+    let k = 0;
+    for (const [x, z] of this.lamps) {
+      if (Math.abs(x - cx) > 260 || Math.abs(z - cz) > 260) continue;
+      o.position.set(x, 6.1, z);
+      o.updateMatrix();
+      this.halos.setMatrixAt(k++, o.matrix);
+    }
+    this.halos.count = k;
+    this.halos.instanceMatrix.needsUpdate = true;
   }
 
   update(dt, clock) {
     this.time += dt;
+    this.waterNormal.offset.set(this.time * 0.012, this.time * 0.02);
     this.updateSignals();
     if (this.eye) {
       const e = this.eye;

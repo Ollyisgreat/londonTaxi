@@ -8,6 +8,14 @@ import { Meter, tariffFor, TARIFFS } from './meter.js';
 import { Payment, startingFloat, floatTotal } from './payment.js';
 import { Sound } from './audio.js';
 import { makeSkyEnv } from './textures.js';
+import { setVehicleNight } from './vehicles.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { clamp, lerp, smooth, pick, fmtMoney, rand, angleWrap } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +34,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 1400);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2200);
 scene.fog = new THREE.Fog('#b8c4cc', 120, 650);
 
 const hemi = new THREE.HemisphereLight('#dfe8f0', '#4a443c', 1.1);
@@ -40,9 +48,104 @@ sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.05;
 scene.add(sun, sun.target);
 
-const envDay = makeSkyEnv(renderer, '#7fa3c2', '#d4dbe0', '#5a564e');
-const envNight = makeSkyEnv(renderer, '#05070d', '#1b2233', '#0a0a0a');
-scene.environment = envDay;
+const envOvercast = makeSkyEnv(renderer, '#8d979f', '#b4bcc2', '#4a4740');
+const envNight = makeSkyEnv(renderer, '#0b0e18', '#2a2630', '#0a0a0a');
+scene.environment = envOvercast;
+
+// physically based sky (atmospheric scattering) that follows the camera
+const sky = new Sky();
+sky.scale.setScalar(1800);
+scene.add(sky);
+const skyU = sky.material.uniforms;
+skyU.turbidity.value = 8;
+skyU.rayleigh.value = 1.6;
+skyU.mieCoefficient.value = 0.006;
+skyU.mieDirectionalG.value = 0.82;
+// a second sky used only to build the reflection environment
+const envScene = new THREE.Scene();
+const envSky = new Sky();
+envSky.scale.setScalar(100);
+envScene.add(envSky);
+const pmrem = new THREE.PMREMGenerator(renderer);
+let envSkyRT = null, lastEnvKey = '';
+function refreshSkyEnv(sunDir) {
+  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG']) envSky.material.uniforms[k].value = skyU[k].value;
+  envSky.material.uniforms.sunPosition.value.copy(sunDir);
+  const rt = pmrem.fromScene(envScene, 0.02);
+  if (envSkyRT) envSkyRT.dispose();
+  envSkyRT = rt;
+}
+// stars for clear nights
+const starGeo = new THREE.BufferGeometry();
+{
+  const a = [];
+  for (let i = 0; i < 1800; i++) {
+    const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, y = Math.abs(u) * 0.9 + 0.05;
+    const r = Math.sqrt(1 - y * y);
+    a.push(Math.cos(t) * r * 1500, y * 1500, Math.sin(t) * r * 1500);
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
+}
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: '#ffffff', size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+stars.frustumCulled = false;
+scene.add(stars);
+
+// ------------------------------------------------------------------ quality / post-processing
+let Q = 'high';
+let composer = null, bloomPass = null, gtaoPass = null, gradePass = null;
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, vignette: { value: 0.32 }, time: { value: 0 }, grain: { value: 0.025 }, sat: { value: 1.06 } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float vignette; uniform float time; uniform float grain; uniform float sat; varying vec2 vUv;
+    float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)) + time) * 43758.5453); }
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.2126,0.7152,0.0722));
+      c.rgb = mix(vec3(l), c.rgb, sat);
+      c.rgb = (c.rgb - 0.5) * 1.04 + 0.5;
+      vec2 d = vUv - 0.5;
+      c.rgb *= 1.0 - vignette * dot(d, d) * 2.2;
+      c.rgb += (rnd(vUv) - 0.5) * grain;
+      gl_FragColor = c;
+    }`,
+};
+function setupQuality(q) {
+  Q = q;
+  const dpr = window.devicePixelRatio || 1;
+  const pr = { low: Math.min(dpr, 1), medium: Math.min(dpr, 1.25), high: Math.min(dpr, 1.5), ultra: Math.min(dpr, 2) }[q];
+  renderer.setPixelRatio(pr);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  const shadowSize = { low: 0, medium: 2048, high: 2048, ultra: 4096 }[q];
+  renderer.shadowMap.enabled = shadowSize > 0;
+  sun.castShadow = shadowSize > 0;
+  if (shadowSize && sun.shadow.mapSize.x !== shadowSize) {
+    sun.shadow.mapSize.set(shadowSize, shadowSize);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+  }
+  const ext = q === 'ultra' ? 90 : 70;
+  sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.updateProjectionMatrix();
+  scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; });
+  if (composer) { composer.renderTarget1.dispose(); composer.renderTarget2.dispose(); composer = null; }
+  if (q === 'low') return;
+  const rt = new THREE.WebGLRenderTarget(16, 16, { type: THREE.HalfFloatType, samples: q === 'medium' ? 0 : 4 });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(pr);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  gtaoPass = null;
+  if (q === 'ultra') {
+    gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
+    gtaoPass.updateGtaoMaterial({ radius: 1.6, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 12 });
+    gtaoPass.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+    gtaoPass.blendIntensity = 0.85;
+    composer.addPass(gtaoPass);
+  }
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.55, 0.9);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  gradePass = new ShaderPass(GradeShader);
+  composer.addPass(gradePass);
+}
 
 // ------------------------------------------------------------------ world
 const city = new City(scene);
@@ -317,37 +420,69 @@ function hour() { return (G.minutes % 1440) / 60; }
 const cDay = new THREE.Color('#b8c6d0'), cDusk = new THREE.Color('#c99a7a'), cNight = new THREE.Color('#0a0f1c'), cRain = new THREE.Color('#8e979e');
 const tmpC = new THREE.Color();
 let nightLevel = 0;
+const cHaze = new THREE.Color('#c4ccd2'), cDuskFog = new THREE.Color('#d6a07c'), cNightFog = new THREE.Color('#1d1c26'), cRainFog = new THREE.Color('#8a9298');
+const sunDir = new THREE.Vector3();
+const moonCol = new THREE.Color('#9fb3d9'), sunCol = new THREE.Color('#fff2e0'), duskCol = new THREE.Color('#ffae6a');
 function updateEnvironment(dt) {
   const h = hour();
-  const sunElev = h > 5.8 && h < 19.5 ? Math.sin((Math.PI * (h - 5.8)) / 13.7) : -0.2;
-  const day = clamp((sunElev + 0.08) / 0.35, 0, 1);
+  const sunElev = h > 5.8 && h < 19.5 ? Math.sin((Math.PI * (h - 5.8)) / 13.7) : -0.25;
+  const day = clamp((sunElev + 0.06) / 0.3, 0, 1);
   const n = 1 - day;
   nightLevel = n;
-  const dusk = clamp(1 - Math.abs(sunElev - 0.05) / 0.2, 0, 1) * (h > 5.8 && h < 19.5 ? 1 : 0);
-  tmpC.copy(cNight).lerp(cDay, day).lerp(cDusk, dusk * 0.5);
-  if (G.raining) tmpC.lerp(cRain, 0.45 * day).multiplyScalar(day > 0.5 ? 1 : 0.9);
-  scene.background = tmpC.clone();
-  scene.fog.color.copy(tmpC);
-  scene.fog.far = G.raining ? 330 : lerp(380, 650, day);
-  scene.fog.near = G.raining ? 40 : 90;
-  hemi.intensity = lerp(0.22, 1.15, day) * (G.raining ? 0.85 : 1);
-  hemi.color.set(day > 0.5 ? '#dfe8f0' : '#7c8aa8');
-  sun.intensity = lerp(0.0, 2.4, day) * (G.raining ? 0.35 : 1);
-  sun.color.copy(new THREE.Color('#fff1dc')).lerp(new THREE.Color('#ffb070'), dusk);
+  const dusk = clamp(1 - Math.abs(sunElev - 0.06) / 0.18, 0, 1);
   const az = ((h - 5.8) / 13.7) * Math.PI;
-  const dir = new THREE.Vector3(Math.cos(az) * 0.8, Math.max(0.25, sunElev) * 1.2, -0.45).normalize();
-  sun.position.set(taxi.x + dir.x * 150, dir.y * 150, taxi.z + dir.z * 150);
-  sun.target.position.set(taxi.x, 0, taxi.z);
-  scene.environment = n > 0.6 ? envNight : envDay;
-  renderer.toneMappingExposure = lerp(1.25, 1.0, day);
+  const el = sunElev * 0.75;
+  sunDir.set(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * 0.6 * Math.cos(el)).normalize();
+  // sky
+  const overcast = G.raining;
+  sky.visible = !overcast;
+  sky.position.copy(camera.position);
+  skyU.sunPosition.value.copy(sunDir);
+  stars.position.copy(camera.position);
+  stars.material.opacity = overcast ? 0 : clamp((n - 0.6) / 0.4, 0, 1) * 0.8;
+  // fog / haze
+  tmpC.copy(cNightFog).lerp(cHaze, day).lerp(cDuskFog, dusk * 0.55 * day);
+  if (overcast) tmpC.lerp(cRainFog, 0.7 * day + 0.1).multiplyScalar(0.92);
+  scene.fog.color.copy(tmpC);
+  scene.background = overcast ? tmpC.clone() : null;
+  scene.fog.far = overcast ? 340 : lerp(420, 760, day);
+  scene.fog.near = overcast ? 30 : 70;
+  // lights: sun by day, moon (cool, dim) by night
+  hemi.intensity = lerp(0.18, 0.9, day) * (overcast ? 1.05 : 1);
+  hemi.color.set(day > 0.5 ? '#dbe6f2' : '#6f7ea3');
+  hemi.groundColor.set(day > 0.5 ? '#5a5248' : '#2a2422');
+  if (day > 0.02) {
+    sun.intensity = lerp(0.0, 3.2, day) * (overcast ? 0.28 : 1);
+    sun.color.copy(sunCol).lerp(duskCol, dusk);
+    sun.position.set(taxi.x + sunDir.x * 160, Math.max(0.12, sunDir.y) * 160, taxi.z + sunDir.z * 160);
+  } else {
+    sun.intensity = overcast ? 0.05 : 0.28;
+    sun.color.copy(moonCol);
+    sun.position.set(taxi.x - 60, 130, taxi.z + 70);
+  }
+  sun.target.position.set(taxi.x + taxi.fwdX * 25, 0, taxi.z + taxi.fwdZ * 25);
+  // reflections
+  if (overcast) scene.environment = day > 0.4 ? envOvercast : envNight;
+  else if (n > 0.75) scene.environment = envNight;
+  else {
+    const key = (Math.round(sunDir.y * 40) / 40).toFixed(3);
+    if (key !== lastEnvKey) { lastEnvKey = key; refreshSkyEnv(sunDir); }
+    scene.environment = envSkyRT.texture;
+  }
+  scene.environmentIntensity = scene.environment === envSkyRT?.texture ? 0.32 : 0.9;
+  renderer.toneMappingExposure = lerp(1.3, 0.62, day) * (overcast ? 1.15 : 1);
   city.setNight(n);
-  const lit = taxi.headlights || (n > 0.5 && G.autoLights);
-  taxi.headLight.intensity = taxi.headlights ? 60 : 0;
+  setVehicleNight(n);
+  if (bloomPass) {
+    bloomPass.strength = lerp(0.12, 0.75, n);
+    bloomPass.threshold = lerp(0.95, 0.75, n);
+  }
+  taxi.headLight.intensity = taxi.headlights ? 80 : 0;
   taxi.cabinLight.intensity = G.fare && G.fare.stage === 'paying' && n > 0.4 ? 1.2 : 0;
-  void lit;
-  // wet road
-  city.mat.road.roughness = smooth(city.mat.road.roughness, G.raining ? 0.32 : 0.92, 0.5, dt);
-  city.mat.road.color.setScalar(G.raining ? 0.72 : 1);
+  // wet road: glossier and darker
+  city.mat.road.roughness = smooth(city.mat.road.roughness, overcast ? 0.22 : 1, 0.4, dt);
+  city.mat.road.color.setScalar(overcast ? 0.62 : 1);
+  city.mat.pave.roughness = overcast ? 0.45 : 0.85;
 }
 
 function updateWeather(dt) {
@@ -1045,6 +1180,20 @@ function endShift() {
 
 // ------------------------------------------------------------------ title
 let shiftHour = 7;
+{
+  const seg = $('quality-seg');
+  let saved = null;
+  try { saved = localStorage.getItem('lc-quality'); } catch (e) { /* ignore */ }
+  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  const def = saved || (mobile ? 'low' : 'high');
+  seg.querySelectorAll('button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.q === def);
+    b.addEventListener('click', () => {
+      seg.querySelectorAll('button').forEach((x) => x.classList.remove('on'));
+      b.classList.add('on');
+    });
+  });
+}
 $('shift-seg').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
   $('shift-seg').querySelectorAll('button').forEach((x) => x.classList.remove('on'));
   b.classList.add('on');
@@ -1061,12 +1210,10 @@ function startGame() {
   G.knowledge = $('opt-knowledge').checked;
   G.markers = $('opt-markers').checked;
   $('opt-markers2').checked = G.markers;
-  G.low = $('opt-low').checked;
-  if (G.low) {
-    renderer.setPixelRatio(1);
-    sun.castShadow = false;
-    renderer.shadowMap.enabled = false;
-  }
+  const q = $('quality-seg').querySelector('button.on').dataset.q;
+  G.low = q === 'low';
+  setupQuality(q);
+  try { localStorage.setItem('lc-quality', q); } catch (e) { /* ignore */ }
   G.minutes = shiftHour * 60;
   G.shiftStart = G.minutes;
   G.day = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
@@ -1085,6 +1232,7 @@ function startGame() {
 $('start-btn').addEventListener('click', startGame);
 
 // ------------------------------------------------------------------ init
+setupQuality('high');
 taxi.place(560, 4 * B + 3.5, Math.PI / 2);
 taxi.setCockpit(true);
 traffic.spawnAll(taxi.x, taxi.z);
@@ -1096,6 +1244,8 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+  if (gtaoPass) gtaoPass.setSize(window.innerWidth, window.innerHeight);
 });
 
 // title-screen camera orbit
@@ -1166,7 +1316,11 @@ function frame(now) {
     renderer.setRenderTarget(null);
     rain.visible = G.raining;
   }
-  renderer.render(scene, camera);
+  city.updateHalos(camera);
+  if (composer) {
+    if (gradePass) gradePass.uniforms.time.value = (now % 10000) / 1000;
+    composer.render(dt);
+  } else renderer.render(scene, camera);
   if (!ready) {
     ready = true;
     const b = $('start-btn');

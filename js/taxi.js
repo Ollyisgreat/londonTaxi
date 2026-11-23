@@ -303,6 +303,7 @@ export class Taxi {
     this.interior.visible = on;
     this.model.userData.glass.visible = !on;
     this.model.userData.sign.visible = !on;
+    this.model.userData.lights.visible = !on;
     this.cockpit = on;
   }
 

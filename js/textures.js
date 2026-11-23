@@ -38,6 +38,15 @@ export function makeFacade(style, seed) {
   const e = makeCanvas(W, W), ge = e.getContext('2d');
   ge.fillStyle = '#000';
   ge.fillRect(0, 0, W, W);
+  // height map (for normals) and roughness/metalness map (G = roughness, B = metalness)
+  const hc = makeCanvas(W, W), hg = hc.getContext('2d');
+  const rc = makeCanvas(W, W), rg = rc.getContext('2d');
+  hg.fillStyle = 'rgb(150,150,150)';
+  hg.fillRect(0, 0, W, W);
+  rg.fillStyle = 'rgb(0,235,0)';
+  rg.fillRect(0, 0, W, W);
+  const H = (v, x, y, w, h) => { hg.fillStyle = `rgb(${v},${v},${v})`; hg.fillRect(x, y, w, h); };
+  const R = (rough, metal, x, y, w, h) => { rg.fillStyle = `rgb(0,${Math.round(rough * 255)},${Math.round(metal * 255)})`; rg.fillRect(x, y, w, h); };
   const wc = WALL[style];
   g.fillStyle = wc[0];
   g.fillRect(0, 0, W, W);
@@ -49,6 +58,8 @@ export function makeFacade(style, seed) {
         g.fillStyle = wc[Math.floor(r() * 3)];
         g.globalAlpha = 0.6;
         g.fillRect(x, y, 9, 3);
+        if (x === -off) H(110, 0, y, W, 4);
+        H(150 + Math.floor(r() * 20), x, y, 9, 3);
       }
     }
     g.globalAlpha = 1;
@@ -61,6 +72,7 @@ export function makeFacade(style, seed) {
       g.moveTo(0, y);
       g.lineTo(W, y);
       g.stroke();
+      H(120, 0, y, W, 1.5);
     }
   } else if (style === 'render') {
     noise(g, W, W, 0.08, r, 3000);
@@ -73,6 +85,10 @@ export function makeFacade(style, seed) {
       const litCol = warm ? `rgb(255,${200 + Math.floor(r() * 40)},${120 + Math.floor(r() * 50)})` : `rgb(${200 + Math.floor(r() * 40)},${220 + Math.floor(r() * 30)},255)`;
       if (style === 'glass') {
         glassGrad(g, x0, y0, S, S, r);
+        R(0.06, 0.6, x0, y0, S, S);
+        R(0.6, 0.2, x0, y0 + S - 14, S, 14);
+        H(175, x0, y0, 4, S);
+        H(170, x0 + S / 2, y0, 3, S - 14);
         g.fillStyle = '#1b262e';
         g.fillRect(x0, y0 + S - 14, S, 14); // floor slab
         g.fillStyle = '#9aa7b0';
@@ -89,11 +105,17 @@ export function makeFacade(style, seed) {
       const ww = style === 'stone' ? 0.46 * S : style === 'render' ? 0.44 * S : 0.42 * S;
       const wh = style === 'stone' ? 0.62 * S : 0.6 * S;
       const wx = x0 + (S - ww) / 2, wy = y0 + 0.16 * S;
+      // relief: surround raised, glass recessed
+      H(style === 'render' ? 175 : 160, wx - 8, wy - 12, ww + 16, wh + 20);
+      H(60, wx, wy, ww, wh);
+      R(0.05, 0.15, wx, wy, ww, wh);
       // surround
       if (style === 'brick' || style === 'stock') {
         g.fillStyle = '#e8e2d2';
         g.fillRect(wx - 4, wy - 10, ww + 8, 10); // lintel
         g.fillRect(wx - 6, wy + wh, ww + 12, 6); // sill
+        H(200, wx - 4, wy - 10, ww + 8, 10);
+        H(205, wx - 6, wy + wh, ww + 12, 6);
       } else if (style === 'stone') {
         g.fillStyle = 'rgba(120,110,90,0.35)';
         g.fillRect(wx - 7, wy - 7, ww + 14, wh + 14);
@@ -105,6 +127,8 @@ export function makeFacade(style, seed) {
       }
       glassGrad(g, wx, wy, ww, wh, r);
       // frames / sash bars
+      for (const [fx, fy2, fw, fh] of [[wx, wy, ww, 3], [wx, wy + wh - 3, ww, 3], [wx, wy, 3, wh], [wx + ww - 3, wy, 3, wh], [wx, wy + wh / 2 - 2, ww, 4]]) { H(105, fx, fy2, fw, fh); R(0.5, 0, fx, fy2, fw, fh); }
+      if (style !== 'stone') { H(95, wx + ww / 2 - 1, wy, 2, wh); R(0.5, 0, wx + ww / 2 - 1, wy, 2, wh); }
       g.fillStyle = style === 'stone' ? '#3a3a3a' : '#f4f4f0';
       g.fillRect(wx, wy, ww, 3);
       g.fillRect(wx, wy + wh - 3, ww, 3);
@@ -138,7 +162,99 @@ export function makeFacade(style, seed) {
     }
   }
   const map = canvasTex(c), em = canvasTex(e);
-  return { map, em };
+  const rough = canvasTex(rc);
+  rough.colorSpace = THREE.NoColorSpace;
+  const normal = canvasTex(heightToNormal(hc, 2.2));
+  normal.colorSpace = THREE.NoColorSpace;
+  return { map, em, rough, normal };
+}
+
+/** Convert a greyscale height canvas into a tangent-space normal map canvas. */
+export function heightToNormal(hc, strength = 2) {
+  const w = hc.width, h = hc.height;
+  const src = hc.getContext('2d').getImageData(0, 0, w, h).data;
+  const out = makeCanvas(w, h);
+  const og = out.getContext('2d');
+  const img = og.createImageData(w, h);
+  const d = img.data;
+  const at = (x, y) => src[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      let nx = -dx, ny = dy, nz = 1;
+      const l = Math.hypot(nx, ny, nz);
+      const i = (y * w + x) * 4;
+      d[i] = ((nx / l) * 0.5 + 0.5) * 255;
+      d[i + 1] = ((ny / l) * 0.5 + 0.5) * 255;
+      d[i + 2] = ((nz / l) * 0.5 + 0.5) * 255;
+      d[i + 3] = 255;
+    }
+  og.putImageData(img, 0, 0);
+  return out;
+}
+
+/** Tileable noise height canvas (sum of random blobs, wraps at edges). */
+export function noiseHeight(size, seed, blobs = 3000, rMin = 1, rMax = 4, base = 128, amp = 60) {
+  const r = seededRandom(seed);
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  g.fillStyle = `rgb(${base},${base},${base})`;
+  g.fillRect(0, 0, size, size);
+  for (let i = 0; i < blobs; i++) {
+    const x = r() * size, y = r() * size, rad = rMin + r() * (rMax - rMin);
+    const v = Math.floor(base + (r() - 0.5) * 2 * amp);
+    g.fillStyle = `rgba(${v},${v},${v},0.5)`;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+      g.beginPath();
+      g.arc(x + ox, y + oy, rad, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  return c;
+}
+
+export function dataTex(canvas, repeat = true) {
+  const t = canvasTex(canvas, repeat);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
+}
+
+export function makeWaterNormal() {
+  const N = 256;
+  const c = makeCanvas(N, N), g = c.getContext('2d');
+  const img = g.createImageData(N, N);
+  const r = seededRandom(77);
+  const waves = [];
+  for (let k = 0; k < 14; k++) waves.push([1 + Math.floor(r() * 5), Math.floor(r() * 7) - 3, r() * 6.28, 0.3 + r() * 0.7]);
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      let dx = 0, dy = 0;
+      for (const [kx, ky, ph, a] of waves) {
+        const s = Math.cos(((kx * x + ky * y) / N) * Math.PI * 2 + ph) * a;
+        dx += s * kx;
+        dy += s * ky;
+      }
+      const nx = -dx * 0.05, ny = dy * 0.05, l = Math.hypot(nx, ny, 1);
+      const i = (y * N + x) * 4;
+      img.data[i] = (nx / l * 0.5 + 0.5) * 255;
+      img.data[i + 1] = (ny / l * 0.5 + 0.5) * 255;
+      img.data[i + 2] = (1 / l * 0.5 + 0.5) * 255;
+      img.data[i + 3] = 255;
+    }
+  g.putImageData(img, 0, 0);
+  return dataTex(c);
+}
+
+/** Soft radial gradient used for light pools on the ground. */
+export function makeGlow(inner = 'rgba(255,214,150,1)', size = 128) {
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  const gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gr.addColorStop(0, inner);
+  gr.addColorStop(0.35, inner.replace(/[\d.]+\)$/, '0.45)'));
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, size, size);
+  return canvasTex(c, false);
 }
 
 const SHOPS = [
@@ -256,6 +372,35 @@ export function makePaving() {
   }
   noise(g, 256, 256, 0.2, r, 3000);
   return canvasTex(c);
+}
+
+export function pavingHeight() {
+  const r = seededRandom(19);
+  const c = makeCanvas(256, 256), g = c.getContext('2d');
+  g.fillStyle = 'rgb(70,70,70)';
+  g.fillRect(0, 0, 256, 256);
+  const s = 64;
+  for (let y = 0; y < 256; y += s) for (let x = 0; x < 256; x += s) {
+    const v = 150 + Math.floor(r() * 25);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.fillRect(x + 2, y + 2, s - 4, s - 4);
+  }
+  return c;
+}
+
+export function noiseRough(size, seed, lo, hi) {
+  const r = seededRandom(seed);
+  const c = makeCanvas(size, size), g = c.getContext('2d');
+  const base = Math.round(((lo + hi) / 2) * 255);
+  g.fillStyle = `rgb(0,${base},0)`;
+  g.fillRect(0, 0, size, size);
+  for (let i = 0; i < 400; i++) {
+    const v = Math.round((lo + r() * (hi - lo)) * 255);
+    g.fillStyle = `rgba(0,${v},0,0.35)`;
+    const x = r() * size, y = r() * size, rad = 4 + r() * 22;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) { g.beginPath(); g.arc(x + ox, y + oy, rad, 0, Math.PI * 2); g.fill(); }
+  }
+  return c;
 }
 
 export function makeGrass() {

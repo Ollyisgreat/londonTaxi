@@ -229,3 +229,4 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 6px; margin: 1px; bor
 body.is-touch #led-meter { bottom: 130px; }
 body.is-touch #hud-left { transform: scale(.82); transform-origin: top left; }
 body.is-touch #minimap { width: 150px; height: 150px; }
+.opt-group { margin-bottom: 12px; }

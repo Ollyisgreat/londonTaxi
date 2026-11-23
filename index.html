@@ -7,7 +7,7 @@
   <meta name="description" content="Drive a black cab around London: pick up fares, run the meter, take card or cash." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚕</text></svg>" />
   <link rel="stylesheet" href="style.css" />
-  <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js" } }</script>
+  <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }</script>
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -104,7 +104,15 @@
         </div>
         <label class="opt"><input type="checkbox" id="opt-knowledge" /> <b>Knowledge mode</b> — no sat-nav route, +25% tips</label>
         <label class="opt"><input type="checkbox" id="opt-markers" checked /> Show markers above hailing passengers</label>
-        <label class="opt"><input type="checkbox" id="opt-low" /> Low graphics (faster)</label>
+        <div class="opt-group">
+          <div class="opt-label">Graphics</div>
+          <div class="seg" id="quality-seg">
+            <button data-q="low">Low</button>
+            <button data-q="medium">Medium</button>
+            <button data-q="high" class="on">High</button>
+            <button data-q="ultra">Ultra (AO)</button>
+          </div>
+        </div>
       </div>
       <button class="big-btn start" id="start-btn" disabled>Loading London…</button>
       <div class="controls-mini"><kbd>WASD</kbd> drive · <kbd>L</kbd> doors · <kbd>M</kbd> meter · <kbd>Tab</kbd> map · <kbd>C</kbd> camera · <kbd>F1</kbd> help</div>

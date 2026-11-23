@@ -1,11 +1,39 @@
 import * as THREE from 'three';
 import { GeoBuilder, makeCanvas, canvasTex } from './util.js';
 
+// headlight beam projected on the road (shared material, faded in at night)
+let beamTex = null;
+function beamTexture() {
+  if (beamTex) return beamTex;
+  const c = makeCanvas(64, 128), g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 128, 4, 32, 90, 90);
+  gr.addColorStop(0, 'rgba(255,240,210,1)');
+  gr.addColorStop(0.5, 'rgba(255,230,190,0.35)');
+  gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 64, 128);
+  beamTex = canvasTex(c, false);
+  return beamTex;
+}
+export const beamMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+export function setVehicleNight(n) {
+  if (!beamMat.map) beamMat.map = beamTexture();
+  beamMat.opacity = Math.max(0, (n - 0.3) / 0.7) * 0.45;
+  lightMat.color.setScalar(1 + n * 3);
+}
+function addBeam(g, frontZ, w = 2.4) {
+  if (!beamMat.map) beamMat.map = beamTexture();
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w * 1.6, 11).rotateX(-Math.PI / 2), beamMat);
+  m.position.set(0, 0.06, frontZ - 5.4);
+  m.renderOrder = 2;
+  g.add(m);
+}
+
 // All vehicles: origin on the ground at the centre, front facing -z.
 
-export const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.22, envMapIntensity: 1.6 });
+export const bodyMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.42, clearcoat: 1.0, clearcoatRoughness: 0.05, envMapIntensity: 0.9 });
 export const trimMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.6 });
-export const glassMat = new THREE.MeshStandardMaterial({ color: '#141b20', metalness: 0.9, roughness: 0.05 });
+export const glassMat = new THREE.MeshPhysicalMaterial({ color: '#0d1318', metalness: 0.2, roughness: 0.02, clearcoat: 1, envMapIntensity: 2.0 });
 export const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
 
 function profileBody(builder, pts, width, color, bevel = 0.06) {
@@ -48,7 +76,7 @@ export function buildCab(opts = {}) {
       [-L, 0.34], [L - 0.05, 0.34], [L + 0.02, 0.55], [L - 0.02, 0.84], [2.0, 0.98], [1.05, 1.08], [0.45, 1.79],
       [0.28, 1.85], [-1.95, 1.87], [-2.2, 1.72], [-L, 1.12], [-L - 0.03, 0.6],
     ];
-    profileBody(body, pts, 1.9, opts.color || '#16171a');
+    profileBody(body, pts, 1.9, opts.color || '#0b0b0c');
     // wheel arches (dark)
     for (const z of [-1.45, 1.45]) for (const x of [-0.93, 0.93]) trim.box(x, 0.55, z, 0.06, 0.42, 0.95, '#0a0a0a');
     // bumpers, grille, plates
@@ -97,6 +125,7 @@ export function buildCab(opts = {}) {
   body.castShadow = trim.castShadow = true;
   g.add(body, trim, glass, lights);
   g.userData = { body, trim, glass, lights };
+  if (!opts.separateWheels) addBeam(g, -2.3);
   // roof sign
   const sign = makeTaxiSign();
   sign.position.set(0, 1.97, -0.35);
@@ -171,7 +200,7 @@ export function buildCar(color) {
     c = { body: body.build(), trim: trim.build(), glass: glass.build(), lights: lights.build() };
     cache.set(key, c);
   }
-  return assemble(c);
+  return assemble(c, -2.1);
 }
 
 export function buildVan() {
@@ -195,7 +224,7 @@ export function buildVan() {
     c = { body: body.build(), trim: trim.build(), glass: glass.build(), lights: lights.build() };
     cache.set('van', c);
   }
-  return assemble(c);
+  return assemble(c, -2.65);
 }
 
 let busDest = null;
@@ -226,7 +255,7 @@ export function buildBus() {
     c = { body: body.build(), trim: trim.build(), glass: glass.build(), lights: lights.build() };
     cache.set('bus', c);
   }
-  const g = assemble(c);
+  const g = assemble(c, -5.3);
   if (!busDest) {
     const cv = makeCanvas(512, 64), x = cv.getContext('2d');
     x.fillStyle = '#080808';
@@ -245,8 +274,9 @@ export function buildBus() {
   return g;
 }
 
-function assemble(c) {
+function assemble(c, frontZ = -2.2) {
   const g = new THREE.Group();
+  addBeam(g, frontZ);
   const body = new THREE.Mesh(c.body, bodyMat);
   const trim = new THREE.Mesh(c.trim, trimMat);
   const glass = new THREE.Mesh(c.glass, glassMat);
