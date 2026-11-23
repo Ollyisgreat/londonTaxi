@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="London Cabbie" />
+  <meta name="theme-color" content="#0b0d10" />
   <title>London Cabbie</title>
   <meta name="description" content="Drive a black cab around London: pick up fares, run the meter, take card or cash." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚕</text></svg>" />
@@ -117,18 +122,20 @@
       </div>
       <button class="big-btn start" id="start-btn" disabled>Loading London…</button>
       <div class="rotate-hint">📱↻ Turn your phone sideways for the best view</div>
+      <div class="ios-hint">Tip: on iPhone tap Share → <b>Add to Home Screen</b> to play full-screen</div>
       <div class="controls-mini"><kbd>WASD</kbd> drive · <kbd>L</kbd> doors · <kbd>M</kbd> meter · <kbd>Tab</kbd> map · <kbd>C</kbd> camera · <kbd>F1</kbd> help</div>
       <div id="best" class="muted"></div>
     </div>
   </div>
 
   <div id="touch" class="hidden">
+    <div id="steer-zone"></div>
     <div id="steer-pad" aria-label="Steering wheel — drag left or right">
       <div class="sw"><div class="sw-rim"></div><div class="sw-spoke h"></div><div class="sw-spoke v"></div><div class="sw-hub"></div></div>
     </div>
     <div class="t-right">
       <button data-t="hand" class="t-hand">HAND<br />BRAKE</button>
-      <button data-t="brake" class="t-brake">BRAKE<small>hold to reverse</small></button>
+      <button data-t="brake" class="t-brake">BRAKE<small>stopped? lift &amp; hold = R</small></button>
       <button data-t="gas" class="t-gas">GO</button>
     </div>
     <button id="menu-btn" aria-label="Cab controls">☰ <span>CAB</span></button>

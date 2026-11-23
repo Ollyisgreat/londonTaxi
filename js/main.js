@@ -336,37 +336,49 @@ const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 let touchSteer = 0;
 if (isTouch) {
   document.body.classList.add('is-touch');
-  // steering wheel: drag horizontally (or rotate around the centre)
-  const pad = $('steer-pad'), wheelEl = pad.querySelector('.sw');
-  let steerId = null, startX = 0;
-  pad.addEventListener('pointerdown', (e) => {
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) document.body.classList.add('is-ios');
+  if (window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) document.body.classList.add('standalone');
+  // Native touch events (most reliable on iOS Safari), with multi-touch so you can steer and accelerate at once.
+  const opts = { passive: false };
+  const pad = $('steer-pad'), wheelEl = pad.querySelector('.sw'), zone = $('steer-zone');
+  let steerTouch = null, startX = 0;
+  zone.addEventListener('touchstart', (e) => {
     e.preventDefault();
     sound.init();
-    steerId = e.pointerId;
-    startX = e.clientX;
-    pad.setPointerCapture(e.pointerId);
-  });
-  pad.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== steerId) return;
-    touchSteer = clamp(-(e.clientX - startX) / 70, -1, 1);
-  });
-  const release = (e) => { if (e.pointerId === steerId) { steerId = null; touchSteer = 0; } };
-  pad.addEventListener('pointerup', release);
-  pad.addEventListener('pointercancel', release);
+    if (steerTouch !== null) return;
+    const t = e.changedTouches[0];
+    steerTouch = t.identifier;
+    startX = t.clientX;
+    pad.classList.add('active');
+  }, opts);
+  zone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) if (t.identifier === steerTouch) touchSteer = clamp(-(t.clientX - startX) / 75, -1, 1);
+  }, opts);
+  const endSteer = (e) => {
+    for (const t of e.changedTouches) if (t.identifier === steerTouch) { steerTouch = null; touchSteer = 0; pad.classList.remove('active'); }
+  };
+  zone.addEventListener('touchend', endSteer, opts);
+  zone.addEventListener('touchcancel', endSteer, opts);
   // keep the on-screen wheel in sync with the cab's actual steering
   setInterval(() => { wheelEl.style.transform = `rotate(${-taxi.steer * 160}deg)`; }, 33);
   // pedals
   $('touch').querySelectorAll('.t-right button').forEach((b) => {
     const t = b.dataset.t;
-    const down = (e) => { e.preventDefault(); sound.init(); touch[t] = true; b.classList.add('down'); b.setPointerCapture(e.pointerId); };
-    const up = (e) => { e.preventDefault(); touch[t] = false; b.classList.remove('down'); };
-    b.addEventListener('pointerdown', down);
-    b.addEventListener('pointerup', up);
-    b.addEventListener('pointercancel', up);
+    const down = (e) => { e.preventDefault(); sound.init(); touch[t] = true; b.classList.add('down'); };
+    const up = (e) => { e.preventDefault(); if (e.touches && [...e.targetTouches].length) return; touch[t] = false; b.classList.remove('down'); };
+    b.addEventListener('touchstart', down, opts);
+    b.addEventListener('touchend', up, opts);
+    b.addEventListener('touchcancel', up, opts);
   });
+  // a tap helper: fires on touchend (no 300ms delay / ghost clicks) and on click for mice
+  const onTap = (el, fn) => {
+    el.addEventListener('touchend', (e) => { e.preventDefault(); sound.init(); fn(e); }, opts);
+    el.addEventListener('click', fn);
+  };
   // smart contextual action
   const sb = $('smart-btn');
-  sb.addEventListener('pointerdown', (e) => {
+  sb.addEventListener('touchstart', (e) => {
     e.preventDefault();
     sound.init();
     const a = G.action;
@@ -374,10 +386,10 @@ if (isTouch) {
     sb.classList.add('down');
     if (a.hold) touch.charge = true;
     else onKeyPress(a.key);
-  });
-  const sbUp = () => { sb.classList.remove('down'); touch.charge = false; };
-  sb.addEventListener('pointerup', sbUp);
-  sb.addEventListener('pointercancel', sbUp);
+  }, opts);
+  const sbUp = (e) => { e.preventDefault(); sb.classList.remove('down'); touch.charge = false; };
+  sb.addEventListener('touchend', sbUp, opts);
+  sb.addEventListener('touchcancel', sbUp, opts);
   // cab menu
   const menu = $('cab-menu');
   const openMenu = (on) => {
@@ -389,20 +401,20 @@ if (isTouch) {
       menu.querySelectorAll('.cm-grid button').forEach((b) => b.classList.toggle('on', !!st[b.dataset.k]));
     }
   };
-  $('menu-btn').addEventListener('click', () => { sound.init(); openMenu(true); });
-  menu.querySelector('.cm-close').addEventListener('click', () => openMenu(false));
+  onTap($('menu-btn'), () => openMenu(true));
+  onTap(menu.querySelector('.cm-close'), () => openMenu(false));
   menu.addEventListener('click', (e) => { if (e.target === menu) openMenu(false); });
+  menu.addEventListener('touchend', (e) => { if (e.target === menu) { e.preventDefault(); openMenu(false); } }, opts);
   menu.querySelectorAll('.cm-grid button').forEach((b) => {
     const k = b.dataset.k;
     if (b.dataset.hold) {
-      b.addEventListener('pointerdown', (e) => { e.preventDefault(); sound.startHorn(); });
-      const stop = () => sound.stopHorn();
-      b.addEventListener('pointerup', stop);
-      b.addEventListener('pointercancel', stop);
-      b.addEventListener('pointerleave', stop);
+      b.addEventListener('touchstart', (e) => { e.preventDefault(); sound.init(); sound.startHorn(); }, opts);
+      const stop = (e) => { e.preventDefault(); sound.stopHorn(); };
+      b.addEventListener('touchend', stop, opts);
+      b.addEventListener('touchcancel', stop, opts);
       return;
     }
-    b.addEventListener('click', () => {
+    onTap(b, () => {
       openMenu(false);
       if (k === 'look') { G.lookBack = !G.lookBack; return; }
       onKeyPress(k);

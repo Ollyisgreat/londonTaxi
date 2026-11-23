@@ -266,7 +266,7 @@ export class City {
         const chx = x0 + 1.5 + r() * (w - 3), chz = z0 + 1.5 + r() * (d - 3);
         const col = style === 'stone' ? '#bdb39c' : style === 'render' ? '#e8e6de' : '#7a3e2c';
         D.box(chx, h + 1.6, chz, 2.4, 3.2, 0.9, col);
-        for (let p = 0; p < 3; p++) D.cyl(chx - 0.7 + p * 0.7, h + 3.5, chz, 0.16, 0.2, 0.6, 6, '#b5653b');
+        D.box(chx, h + 3.45, chz, 1.9, 0.5, 0.32, '#b5653b'); // row of chimney pots
       }
     } else {
       D.flat(x0, z0, x1, z1, h + 0.02, 1, '#3d4248');
@@ -445,7 +445,7 @@ export class City {
     const ang = Math.atan2(x1 - x0, z1 - z0);
     D.box((x0 + x1) / 2, h, (z0 + z1) / 2, 0.08, 0.08, len, color, ang);
     D.box((x0 + x1) / 2, 0.35, (z0 + z1) / 2, 0.08, 0.08, len, color, ang);
-    const n = Math.floor(len / 0.6);
+    const n = Math.floor(len / 1.2);
     for (let k = 0; k <= n; k += 1) {
       const t = k / n;
       D.box(x0 + (x1 - x0) * t, h / 2 + 0.1, z0 + (z1 - z0) * t, 0.04, h, 0.04, color);
@@ -1116,8 +1116,8 @@ export class City {
     // clumpy crown made of several lumps with colour variation
     const cb = new GeoBuilder();
     const tr = seededRandom(31);
-    const lumps = [[0, 0, 0, 2.4], [1.4, 0.6, 0.4, 1.7], [-1.3, 0.4, -0.6, 1.8], [0.3, 1.5, -1.0, 1.6], [-0.4, 1.2, 1.3, 1.6], [0.9, -0.5, -1.3, 1.5], [-1.0, -0.4, 1.1, 1.5]];
-    const ico = new THREE.IcosahedronGeometry(1, 2);
+    const lumps = [[0, 0, 0, 2.5], [1.4, 0.6, 0.4, 1.8], [-1.3, 0.4, -0.6, 1.9], [0.3, 1.4, -1.0, 1.7], [-0.4, 1.1, 1.3, 1.7]];
+    const ico = new THREE.IcosahedronGeometry(1, 1);
     for (const [lx, ly, lz, lr] of lumps) {
       const g = ico.clone();
       const p = g.attributes.position;
