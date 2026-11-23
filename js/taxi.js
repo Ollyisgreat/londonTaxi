@@ -94,7 +94,7 @@ export class Taxi {
       const a = new THREE.Vector3(x0, 1.1, -1.03), c = new THREE.Vector3(x1, 1.78, -0.46);
       const dir = c.clone().sub(a);
       const len = dir.length();
-      const g = new THREE.BoxGeometry(0.09, len, 0.09);
+      const g = new THREE.BoxGeometry(0.065, len, 0.065);
       const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
       b.add(g, new THREE.Matrix4().compose(a.clone().add(c).multiplyScalar(0.5), q, new THREE.Vector3(1, 1, 1)), trim);
     };
@@ -316,7 +316,7 @@ export class Taxi {
 
     // automatic gearbox: hold brake at standstill to engage reverse
     if (this.gear === 'D') {
-      if (Math.abs(vF) < 0.3 && brake > 0.5 && throttle < 0.1) {
+      if (Math.abs(vF) < 0.3 && brake > 0.5 && throttle < 0.1 && !input.handbrake) {
         this.reverseHold += dt;
         if (this.reverseHold > 0.35) { this.gear = 'R'; this.reverseHold = 0; }
       } else this.reverseHold = 0;

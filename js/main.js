@@ -224,7 +224,7 @@ function readInput(dt) {
     if (lt > 0.05) input.brake = lt;
     if (gp.buttons[0] && gp.buttons[0].pressed) input.handbrake = true;
   }
-  if (payment.active || (G.fare && G.fare.stage === 'paying')) { input.throttle = 0; input.brake = 1; input.handbrake = true; }
+  if (payment.active || (G.fare && G.fare.stage === 'paying')) { input.throttle = 0; input.brake = 0; input.handbrake = true; }
 }
 
 // touch controls
