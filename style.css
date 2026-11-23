@@ -220,13 +220,154 @@ kbd { display: inline-block; min-width: 20px; padding: 1px 6px; margin: 1px; bor
 .coin.c100 { width: 38px; height: 38px; clip-path: polygon(50% 0, 75% 7%, 93% 25%, 100% 50%, 93% 75%, 75% 93%, 50% 100%, 25% 93%, 7% 75%, 0 50%, 7% 25%, 25% 7%); border-radius: 0; background: radial-gradient(circle, #d9d9d9 0 30%, #e8c25a 32%, #b08a2a 100%); }
 .coin.c200 { width: 46px; height: 46px; background: radial-gradient(circle, #d9d9d9 0 52%, #e8c25a 54%, #b08a2a 100%); }
 
-/* touch */
-#touch { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; display: flex; justify-content: space-between; align-items: flex-end; padding: 0 10px 12px; pointer-events: none; z-index: 5; }
-#touch button { pointer-events: auto; width: 72px; height: 72px; margin: 0 4px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(20,20,24,.55); color: #fff; font-weight: 800; font-size: 18px; touch-action: none; }
-#touch .t-mid button { width: 48px; height: 48px; font-size: 18px; }
-#touch .t-right button[data-t='gas'] { background: rgba(40, 140, 60, .6); }
-#touch .t-right button[data-t='brake'] { background: rgba(160, 40, 40, .6); font-size: 13px; }
-body.is-touch #led-meter { bottom: 130px; }
-body.is-touch #hud-left { transform: scale(.82); transform-origin: top left; }
-body.is-touch #minimap { width: 150px; height: 150px; }
+/* ---------------- touch / phone */
+.touch-only, .rotate-hint { display: none; }
+body.is-touch .touch-only { display: block; }
+html, body { overscroll-behavior: none; }
+#game { touch-action: none; }
+#payment, .card, .title-card, #cab-menu .cm-sheet { touch-action: pan-y; }
+#touch { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#touch button { pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; font-family: inherit; }
+#steer-pad { position: absolute; left: calc(14px + env(safe-area-inset-left)); bottom: 14px; width: 150px; height: 150px; pointer-events: auto; touch-action: none; }
+#steer-pad .sw { position: absolute; inset: 8px; border-radius: 50%; transition: transform .05s linear; }
+.sw-rim { position: absolute; inset: 0; border-radius: 50%; border: 14px solid rgba(25,25,28,.82); box-shadow: 0 0 0 2px rgba(255,255,255,.3), inset 0 0 0 2px rgba(255,255,255,.15), 0 6px 18px rgba(0,0,0,.45); }
+.sw-spoke { position: absolute; background: rgba(25,25,28,.82); }
+.sw-spoke.h { left: 10px; right: 10px; top: 50%; height: 12px; margin-top: -6px; }
+.sw-spoke.v { left: 50%; width: 12px; margin-left: -6px; top: 50%; bottom: 10px; }
+.sw-hub { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: #222; border: 2px solid rgba(255,255,255,.4); }
+.sw-hub::after { content: ''; position: absolute; left: 50%; top: -48px; width: 6px; height: 14px; margin-left: -3px; background: var(--yellow); border-radius: 3px; }
+#touch .t-right { position: absolute; right: calc(12px + env(safe-area-inset-right)); bottom: 14px; display: flex; align-items: flex-end; gap: 10px; }
+#touch .t-right button { border: 2px solid rgba(255,255,255,.35); color: #fff; font-weight: 800; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; }
+#touch .t-right button small { font-size: 9px; font-weight: 600; opacity: .8; margin-top: 3px; }
+#touch .t-right button.down { transform: scale(.94); filter: brightness(1.35); }
+.t-gas { width: 86px; height: 128px; font-size: 22px; background: rgba(40,140,60,.65); }
+.t-brake { width: 86px; height: 96px; font-size: 16px; background: rgba(170,40,40,.65); }
+.t-hand { width: 58px; height: 58px; font-size: 10px; background: rgba(30,30,34,.65); }
+#menu-btn { position: absolute; right: calc(12px + env(safe-area-inset-right)); bottom: 152px; padding: 10px 14px; border-radius: 12px; border: 2px solid rgba(255,255,255,.35); background: rgba(20,22,26,.8); color: #fff; font-size: 17px; font-weight: 800; }
+#menu-btn span { font-size: 12px; letter-spacing: 1px; }
+#smart-btn { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 14px 22px; border-radius: 30px; border: none; background: var(--yellow); color: #111; font-size: 17px; font-weight: 800; box-shadow: 0 6px 20px rgba(0,0,0,.5), 0 0 0 0 rgba(255,210,58,.7); animation: pulse 1.6s infinite; white-space: nowrap; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+#smart-btn.down { filter: brightness(1.2); }
+@keyframes pulse { 70% { box-shadow: 0 6px 20px rgba(0,0,0,.5), 0 0 0 16px rgba(255,210,58,0); } 100% { box-shadow: 0 6px 20px rgba(0,0,0,.5), 0 0 0 0 rgba(255,210,58,0); } }
+#cab-menu { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 12; display: flex; align-items: flex-end; justify-content: center; }
+.cm-sheet { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: #15181d; border-radius: 18px 18px 0 0; border: 1px solid var(--line); padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); animation: up .2s ease-out; }
+@keyframes up { from { transform: translateY(40px); opacity: 0; } }
+.cm-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 16px; }
+.cm-close, .bm-close { background: #2c3139; color: #fff; border: none; width: 36px; height: 36px; border-radius: 50%; font-size: 16px; cursor: pointer; }
+.bm-close { position: absolute; right: 8px; top: 8px; z-index: 2; }
+.cm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.cm-grid button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 12px; border: 1px solid #333a44; background: #20242b; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.cm-grid button i { font-style: normal; font-size: 24px; }
+.cm-grid button.on { background: #3b3320; border-color: var(--yellow); }
+
+/* phone HUD layout */
+body.is-touch #prompt, body.is-touch #help-btn, body.is-touch .kbd-tip, body.is-touch .controls-mini { display: none; }
+body.is-touch #replies { bottom: 76px; flex-wrap: wrap; justify-content: center; max-width: 60vw; }
+body.is-touch #replies button { font-size: 13px; padding: 9px 12px; }
+body.is-touch #replies kbd { display: none; }
+body.is-touch #speech { bottom: 128px; font-size: 14px; max-width: 56vw; padding: 7px 12px; }
+body.is-touch #hud-left { top: calc(8px + env(safe-area-inset-top)); left: calc(8px + env(safe-area-inset-left)); width: 150px; padding: 6px 9px; font-size: 12px; }
+body.is-touch #hud-left .row.small, body.is-touch #hud-left .sep { display: none; }
+body.is-touch #hud-left .row.small:nth-of-type(2) { display: flex; }
+body.is-touch #h-clock { font-size: 14px; }
+body.is-touch #h-takings { font-size: 14px; }
+body.is-touch #led-meter { top: 74px; bottom: auto; left: calc(8px + env(safe-area-inset-left)); width: 150px; padding: 3px 8px; border-width: 2px; }
+body.is-touch .lm-fare { font-size: 26px; }
+body.is-touch .lm-fare::before { font-size: 18px; margin-top: 6px; }
+body.is-touch .lm-top, body.is-touch .lm-bot { font-size: 10px; }
+body.is-touch #hud-right { top: calc(8px + env(safe-area-inset-top)); right: calc(8px + env(safe-area-inset-right)); gap: 5px; }
+body.is-touch #minimap { width: 118px; height: 118px; border-width: 2px; }
+body.is-touch #speedo { padding: 2px 8px; }
+body.is-touch #h-speed { font-size: 20px; min-width: 30px; }
+body.is-touch #street-sign { top: 8px; padding: 2px 8px; border-width: 3px; max-width: 42vw; }
+body.is-touch .ss-name, body.is-touch .ss-code { font-size: 12px; }
+body.is-touch #job { top: 38px; min-width: 0; max-width: 46vw; padding: 5px 9px; }
+body.is-touch .job-title { font-size: 12.5px; }
+body.is-touch .job-sub { font-size: 10.5px; }
+body.is-touch #toasts { top: auto; bottom: 200px; right: 8px; }
+body.is-touch .toast { font-size: 12px; padding: 5px 9px; max-width: 46vw; }
+body.is-touch .toast kbd { display: none; }
+@media (orientation: portrait) {
+  body.is-touch .rotate-hint { display: block; margin: 10px 0 0; padding: 8px; border-radius: 8px; background: #2a2410; color: var(--yellow); font-size: 13px; }
+  body.is-touch #street-sign { top: 140px; }
+  body.is-touch #job { top: 170px; max-width: 70vw; }
+  body.is-touch #speech { max-width: 90vw; bottom: 200px; }
+  body.is-touch #replies { bottom: 250px; max-width: 92vw; }
+  body.is-touch #smart-btn { bottom: 180px; max-width: 80vw; }
+  body.is-touch #toasts { bottom: 300px; }
+}
+
+/* payment & overlays on short / narrow screens */
+@media (max-height: 520px), (max-width: 640px) {
+  #payment { width: 100%; max-height: 100%; top: 0; left: 0; transform: none; border-radius: 0; padding: 8px 10px calc(10px + env(safe-area-inset-bottom)); height: 100%; }
+  .pay-head { gap: 8px; }
+  .pay-meter { padding: 2px 10px; } .pay-meter .val { font-size: 22px; }
+  .pax-av { width: 38px; height: 38px; } .pax-face { left: 9px; top: 5px; width: 18px; height: 20px; } .pax-hair { left: 8px; top: 2px; width: 22px; height: 9px; }
+  .pay-speech { margin: 6px 0; padding: 6px 10px; font-size: 14px; }
+  .pay-body { gap: 12px; flex-wrap: nowrap; align-items: flex-start; }
+  .pdq { width: 200px; padding: 8px 10px 12px; flex: none; }
+  .pdq-screen { height: 112px; }
+  .amt { font-size: 22px; }
+  .pdq-keys { gap: 5px; margin-top: 8px; }
+  .pdq-keys button { height: 33px; font-size: 15px; }
+  .pdq-slot { margin-top: 8px; }
+  .pay-side { width: auto; flex: 1; min-width: 0; }
+  .steps div { padding: 4px 8px; margin: 2px 0; font-size: 12px; }
+  .big-btn { padding: 10px 12px; font-size: 15px; }
+  .tendered, .tray { min-height: 54px; padding: 5px; }
+  .cash-row { margin-bottom: 4px; } .cash-lbl { font-size: 12.5px; margin: 3px 0; }
+  .float { grid-template-columns: repeat(6, 1fr); gap: 5px; padding: 6px; }
+  .fslot { min-height: 62px; padding: 3px 1px; }
+  .note { width: 74px; height: 40px; } .note .nv { font-size: 12px; } .note .nv2 { font-size: 14px; } .note .nq { width: 16px; height: 20px; right: 8px; } .note .nb { font-size: 5px; }
+  .note.small { width: 64px; height: 34px; }
+  .card-anim { transform: scale(.8); }
+  .title-card { padding: 14px 16px; max-height: calc(100% - 16px); overflow: auto; }
+  .logo h1 { font-size: 30px; margin: 8px 0 4px; }
+  .opts { margin: 10px 0 4px; }
+  .opt { margin: 6px 0; font-size: 13px; }
+  .start { margin-top: 8px; padding: 11px; }
+}
+@media (max-width: 640px) and (orientation: portrait) {
+  .pay-body { flex-wrap: wrap; }
+  .pay-side { width: 100%; }
+  .float { grid-template-columns: repeat(4, 1fr); }
+}
 .opt-group { margin-bottom: 12px; }
+
+/* very short (landscape phone) screens: pack the payment screen into one view */
+@media (max-height: 520px) {
+  #payment { display: flex; flex-wrap: wrap; align-content: flex-start; }
+  .pay-pax { display: none; }
+  .pay-head { flex: none; }
+  .pay-speech { flex: 1; min-width: 0; margin: 0 0 6px 8px; align-self: stretch; display: flex; align-items: center; font-size: 13.5px; }
+  .pay-body { width: 100%; }
+  .pdq { width: 190px; }
+  .pdq-screen { height: 88px; padding: 3px 6px; }
+  .s-title { font-size: 12px; padding-bottom: 1px; }
+  .menu { font-size: 12px; line-height: 1.3; }
+  .pdq-top { padding-bottom: 3px; }
+  .pdq-keys { gap: 4px; margin-top: 6px; }
+  .pdq-keys button { height: 26px; font-size: 14px; border-radius: 7px; }
+  .pdq-keys button small { display: none; }
+  .pdq-slot { height: 5px; margin-top: 6px; }
+  .pdq-printer.printing { height: 160px; }
+  .cash-wrap { display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; }
+  .cash-wrap > .cash-lbl, .cash-wrap > .float, .cash-wrap > .cash-actions { grid-column: 1 / -1; }
+  .cash-lbl .muted { display: none; }
+  .tendered, .tray { min-height: 46px; }
+  .fslot { min-height: 50px; gap: 1px; }
+  .float .note { width: 60px; height: 32px; }
+  .float .note .nb { display: none; }
+  .float .coin { transform: scale(.8); }
+  .fcount { font-size: 10.5px; }
+  .cash-actions { margin-top: 6px; }
+  .tag, .taxi-light, #best { display: none; }
+  .title-card .opts { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-items: start; }
+  .title-card .opt-group { grid-column: 1 / -1; margin-bottom: 6px; }
+  .seg button { padding: 7px 4px; font-size: 12.5px; }
+  .opt-label { margin-bottom: 3px; }
+}
+#title { overflow: auto; }
+#menu-btn { bottom: auto; top: calc(8px + env(safe-area-inset-top)); right: calc(136px + env(safe-area-inset-right)); padding: 8px 12px; }
+@media (orientation: portrait) { #menu-btn { right: calc(12px + env(safe-area-inset-right)); top: auto; bottom: 160px; } }
+.pay-speech b { margin-right: 5px; }
+.cash-actions { position: sticky; bottom: 0; z-index: 2; background: linear-gradient(transparent, #121418 30%); padding-top: 6px; }

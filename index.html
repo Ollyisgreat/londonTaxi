@@ -53,7 +53,7 @@
   <div id="payment" class="hidden"></div>
 
   <div id="bigmap" class="overlay hidden">
-    <div class="bm-inner"><canvas id="bigmap-canvas" width="1300" height="1150"></canvas><div class="bm-legend">🟡 Hailing fare &nbsp; 🏁 Destination &nbsp; ⚡ Charger &nbsp; 📷 Speed camera &nbsp; — press <b>Tab</b> to close</div></div>
+    <div class="bm-inner"><canvas id="bigmap-canvas" width="1300" height="1150"></canvas><button class="bm-close" id="bigmap-close" aria-label="Close map">✕</button><div class="bm-legend">🟡 Hailing fare &nbsp; 🏁 Destination &nbsp; ⚡ Charger &nbsp; 📷 Speed camera &nbsp; — press <b>Tab</b> to close</div></div>
   </div>
 
   <div id="help" class="overlay hidden">
@@ -68,6 +68,7 @@
         <div>
           <h3>Being a cabbie</h3>
           <p>Look for people with their <b>arm up</b> (🟡 on the map). Pull up beside them and stop.</p>
+          <p class="touch-only"><b>On a phone:</b> drag the steering wheel, hold GO / BRAKE, and tap the big yellow button when it appears (let passengers in, start/stop the meter…). Everything else is in the <b>☰ CAB</b> menu.</p>
           <p><kbd>L</kbd> unlock / lock the doors to let them in or out<br><kbd>M</kbd> start the meter (don't forget!) and stop it on arrival<br><kbd>1</kbd>/<kbd>2</kbd> reply when passengers chat<br><kbd>Tab</kbd> map · <kbd>F</kbd> charge at ⚡ · <kbd>Esc</kbd> pause</p>
           <p>Payment: use the <b>card terminal</b> (key in the fare, pass it through) or <b>count out change</b> from your money bag.</p>
         </div>
@@ -115,15 +116,45 @@
         </div>
       </div>
       <button class="big-btn start" id="start-btn" disabled>Loading London…</button>
+      <div class="rotate-hint">📱↻ Turn your phone sideways for the best view</div>
       <div class="controls-mini"><kbd>WASD</kbd> drive · <kbd>L</kbd> doors · <kbd>M</kbd> meter · <kbd>Tab</kbd> map · <kbd>C</kbd> camera · <kbd>F1</kbd> help</div>
       <div id="best" class="muted"></div>
     </div>
   </div>
 
   <div id="touch" class="hidden">
-    <div class="t-left"><button data-t="left">◀</button><button data-t="right">▶</button></div>
-    <div class="t-mid"><button data-t="L">🔓</button><button data-t="M">£</button><button data-t="C">🎥</button><button data-t="Tab">🗺</button></div>
-    <div class="t-right"><button data-t="brake">BRAKE</button><button data-t="gas">GO</button></div>
+    <div id="steer-pad" aria-label="Steering wheel — drag left or right">
+      <div class="sw"><div class="sw-rim"></div><div class="sw-spoke h"></div><div class="sw-spoke v"></div><div class="sw-hub"></div></div>
+    </div>
+    <div class="t-right">
+      <button data-t="hand" class="t-hand">HAND<br />BRAKE</button>
+      <button data-t="brake" class="t-brake">BRAKE<small>hold to reverse</small></button>
+      <button data-t="gas" class="t-gas">GO</button>
+    </div>
+    <button id="menu-btn" aria-label="Cab controls">☰ <span>CAB</span></button>
+    <button id="smart-btn" class="hidden"></button>
+  </div>
+
+  <div id="cab-menu" class="hidden">
+    <div class="cm-sheet">
+      <div class="cm-head"><b>Cab controls</b><button class="cm-close" aria-label="Close">✕</button></div>
+      <div class="cm-grid">
+        <button data-k="l"><i>🔓</i><span id="cm-doors">Unlock doors</span></button>
+        <button data-k="m"><i>💷</i><span id="cm-meter">Start meter</span></button>
+        <button data-k="q"><i>⬅️</i><span>Left indicator</span></button>
+        <button data-k="e"><i>➡️</i><span>Right indicator</span></button>
+        <button data-k="z"><i>⚠️</i><span>Hazards</span></button>
+        <button data-k="h" data-hold="1"><i>📯</i><span>Horn (hold)</span></button>
+        <button data-k="n"><i>💡</i><span>Headlights</span></button>
+        <button data-k="v"><i>🌧️</i><span>Wipers</span></button>
+        <button data-k="c"><i>🎥</i><span>Camera</span></button>
+        <button data-k="Tab"><i>🗺️</i><span>Map</span></button>
+        <button data-k="look"><i>👀</i><span>Look back</span></button>
+        <button data-k="r"><i>🛟</i><span>Recover cab</span></button>
+        <button data-k="F1"><i>❓</i><span>Help</span></button>
+        <button data-k="Escape"><i>⏸️</i><span>Pause</span></button>
+      </div>
+    </div>
   </div>
 
   <noscript>This game needs JavaScript.</noscript>

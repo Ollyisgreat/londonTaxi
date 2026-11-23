@@ -253,7 +253,7 @@ G.floatStart = floatTotal(G.float);
 // ------------------------------------------------------------------ input
 const keys = new Set();
 const input = { throttle: 0, brake: 0, steer: 0, handbrake: false };
-const touch = { left: false, right: false, gas: false, brake: false };
+const touch = { left: false, right: false, gas: false, brake: false, hand: false, charge: false };
 let steerSmooth = 0;
 window.addEventListener('keydown', (e) => {
   if (payment.active) return;
@@ -316,9 +316,10 @@ function readInput(dt) {
   if (keys.has('d') || keys.has('ArrowRight') || touch.right) steerT -= 1;
   steerSmooth = smooth(steerSmooth, steerT, steerT === 0 ? 7 : 4, dt);
   input.steer = steerSmooth;
+  if (touchSteer !== 0) input.steer = touchSteer;
   input.throttle = keys.has('w') || keys.has('ArrowUp') || touch.gas ? 1 : 0;
   input.brake = keys.has('s') || keys.has('ArrowDown') || touch.brake ? 1 : 0;
-  input.handbrake = keys.has(' ');
+  input.handbrake = keys.has(' ') || touch.hand;
   if (gp) {
     const ax = gp.axes[0] || 0;
     if (Math.abs(ax) > 0.12) input.steer = -ax;
@@ -330,24 +331,85 @@ function readInput(dt) {
   if (payment.active || (G.fare && G.fare.stage === 'paying')) { input.throttle = 0; input.brake = 0; input.handbrake = true; }
 }
 
-// touch controls
-if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+// touch controls: drag-to-steer wheel, pedals, smart action button and a cab menu
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+let touchSteer = 0;
+if (isTouch) {
   document.body.classList.add('is-touch');
-  $('touch').querySelectorAll('button').forEach((b) => {
+  // steering wheel: drag horizontally (or rotate around the centre)
+  const pad = $('steer-pad'), wheelEl = pad.querySelector('.sw');
+  let steerId = null, startX = 0;
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    sound.init();
+    steerId = e.pointerId;
+    startX = e.clientX;
+    pad.setPointerCapture(e.pointerId);
+  });
+  pad.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== steerId) return;
+    touchSteer = clamp(-(e.clientX - startX) / 70, -1, 1);
+  });
+  const release = (e) => { if (e.pointerId === steerId) { steerId = null; touchSteer = 0; } };
+  pad.addEventListener('pointerup', release);
+  pad.addEventListener('pointercancel', release);
+  // keep the on-screen wheel in sync with the cab's actual steering
+  setInterval(() => { wheelEl.style.transform = `rotate(${-taxi.steer * 160}deg)`; }, 33);
+  // pedals
+  $('touch').querySelectorAll('.t-right button').forEach((b) => {
     const t = b.dataset.t;
-    const down = (e) => {
-      e.preventDefault();
-      sound.init();
-      if (t in touch) touch[t] = true;
-      else onKeyPress(t === 'Tab' ? 'Tab' : t.toLowerCase());
-    };
-    const up = (e) => { e.preventDefault(); if (t in touch) touch[t] = false; };
+    const down = (e) => { e.preventDefault(); sound.init(); touch[t] = true; b.classList.add('down'); b.setPointerCapture(e.pointerId); };
+    const up = (e) => { e.preventDefault(); touch[t] = false; b.classList.remove('down'); };
     b.addEventListener('pointerdown', down);
     b.addEventListener('pointerup', up);
-    b.addEventListener('pointerleave', up);
     b.addEventListener('pointercancel', up);
   });
+  // smart contextual action
+  const sb = $('smart-btn');
+  sb.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    sound.init();
+    const a = G.action;
+    if (!a) return;
+    sb.classList.add('down');
+    if (a.hold) touch.charge = true;
+    else onKeyPress(a.key);
+  });
+  const sbUp = () => { sb.classList.remove('down'); touch.charge = false; };
+  sb.addEventListener('pointerup', sbUp);
+  sb.addEventListener('pointercancel', sbUp);
+  // cab menu
+  const menu = $('cab-menu');
+  const openMenu = (on) => {
+    menu.classList.toggle('hidden', !on);
+    if (on) {
+      $('cm-doors').textContent = taxi.doorsLocked ? 'Unlock doors' : 'Lock doors';
+      $('cm-meter').textContent = meter.state === 'vacant' ? 'Start meter' : 'Stop meter';
+      const st = { q: taxi.indicator === -1, e: taxi.indicator === 1, z: taxi.hazards, n: taxi.headlights, v: !!taxi.wipers, look: G.lookBack };
+      menu.querySelectorAll('.cm-grid button').forEach((b) => b.classList.toggle('on', !!st[b.dataset.k]));
+    }
+  };
+  $('menu-btn').addEventListener('click', () => { sound.init(); openMenu(true); });
+  menu.querySelector('.cm-close').addEventListener('click', () => openMenu(false));
+  menu.addEventListener('click', (e) => { if (e.target === menu) openMenu(false); });
+  menu.querySelectorAll('.cm-grid button').forEach((b) => {
+    const k = b.dataset.k;
+    if (b.dataset.hold) {
+      b.addEventListener('pointerdown', (e) => { e.preventDefault(); sound.startHorn(); });
+      const stop = () => sound.stopHorn();
+      b.addEventListener('pointerup', stop);
+      b.addEventListener('pointercancel', stop);
+      b.addEventListener('pointerleave', stop);
+      return;
+    }
+    b.addEventListener('click', () => {
+      openMenu(false);
+      if (k === 'look') { G.lookBack = !G.lookBack; return; }
+      onKeyPress(k);
+    });
+  });
 }
+$('bigmap-close').addEventListener('click', () => $('bigmap').classList.add('hidden'));
 
 // ------------------------------------------------------------------ UI helpers
 function toast(msg, kind = '') {
@@ -832,6 +894,20 @@ function updateFares(dt) {
     if (l.t > 6) { scene.remove(l.p.group); G.leavers = G.leavers.filter((x) => x !== l); }
   }
   G.prompt = prompt;
+  G.action = computeAction();
+}
+
+function computeAction() {
+  const F = G.fare, spd = Math.abs(taxi.speed);
+  if (F && F.stage === 'leaving') return { label: '🔓 Let them out', key: 'l' };
+  if (F && F.stage === 'onboard') {
+    const d = Math.hypot(F.dest.x - taxi.x, F.dest.z - taxi.z);
+    if (d < 22 && spd < 0.8) return { label: F.meterOn ? '■ Stop meter & take payment' : '💷 Ask for payment', key: 'm' };
+    if (!F.meterOn) return { label: '▶ Start the meter', key: 'm' };
+  }
+  if (forHire() && spd < 0.6 && taxi.doorsLocked && G.hailers.some((h) => Math.hypot(h.spot.x - taxi.x, h.spot.z - taxi.z) < 14)) return { label: '🔓 Let them in', key: 'l' };
+  if (spd < 0.5 && G.battery < 1 && chargers.some((c) => Math.hypot(c.x - taxi.x, c.z - taxi.z) < 10)) return { label: `⚡ Hold to charge · ${Math.round(G.battery * 100)}%`, hold: true };
+  return null;
 }
 
 // ------------------------------------------------------------------ rules: lights, cameras, battery
@@ -881,7 +957,7 @@ function updateRules(dt) {
   for (const c of chargers) {
     if (Math.hypot(c.x - taxi.x, c.z - taxi.z) < 10 && Math.abs(taxi.speed) < 0.5) {
       if (!G.prompt) G.prompt = `⚡ Rapid charger — hold <kbd>F</kbd> to charge (20p per 1%) · ${Math.round(G.battery * 100)}%`;
-      if (keys.has('f') && G.battery < 1) {
+      if ((keys.has('f') || touch.charge) && G.battery < 1) {
         const add = Math.min(1 - G.battery, dt * 0.03);
         G.battery += add;
         G.fuel += add * 100 * 20;
@@ -1088,6 +1164,12 @@ function updateHUD(dt) {
     $('mood-fill').style.width = F.pax.mood + '%';
   } else $('job').classList.add('hidden');
   $('prompt').innerHTML = G.prompt || '';
+  if (isTouch) {
+    const sb = $('smart-btn');
+    const a = !payment.active && G.action;
+    sb.classList.toggle('hidden', !a);
+    if (a && sb.textContent !== a.label) sb.textContent = a.label;
+  }
   // 3D displays
   taxi.drawMeter(meter, clockStr());
   taxi.drawCluster({ battery: G.battery, clock: `${DAYS[G.day]} ${clockStr()}`, limit: speedLimit() });
@@ -1114,7 +1196,7 @@ function updateCamera(dt) {
   taxi.group.updateMatrixWorld(true);
   if (G.cam === 'cockpit') {
     // look at the partition when taking payment
-    const wantYaw = G.lookTarget ? 2.35 : 0;
+    const wantYaw = G.lookTarget ? 2.35 : G.lookBack ? 2.5 : 0;
     if (!dragging) {
       G.lookYaw = smooth(G.lookYaw, wantYaw, G.lookTarget ? 3 : 2.5, dt);
       G.lookPitch = smooth(G.lookPitch, G.lookTarget ? -0.1 : 0, 2.5, dt);
@@ -1126,7 +1208,7 @@ function updateCamera(dt) {
     camera.position.copy(e);
     camera.rotation.set(0, 0, 0);
     camera.quaternion.setFromEuler(new THREE.Euler(G.lookPitch - 0.08 - taxi.pitch, taxi.heading + G.lookYaw + glance, -taxi.roll * 0.5, 'YXZ'));
-    camera.fov = 72;
+    camera.fov = camera.aspect < 1 ? 92 : 72;
     chaseInit = false;
   } else {
     const fx = taxi.fwdX, fz = taxi.fwdZ;
@@ -1141,7 +1223,7 @@ function updateCamera(dt) {
     camera.position.copy(camPos);
     camTarget.set(taxi.x + fx * 4, 1.4, taxi.z + fz * 4);
     camera.lookAt(camTarget);
-    camera.fov = 65;
+    camera.fov = camera.aspect < 1 ? 85 : 65;
     if (!dragging) G.lookYaw = smooth(G.lookYaw, 0, 2, dt);
   }
   camera.updateProjectionMatrix();
@@ -1227,7 +1309,8 @@ function startGame() {
   G.autoLights = true;
   if (nightLevel > 0.4) taxi.headlights = true;
   toast('Your shift has started. Look for someone with their arm up 🙋', 'good');
-  setTimeout(() => toast('Drive on the <b>left</b>! <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive, <kbd>C</kbd> to change camera, <kbd>F1</kbd> for all controls.'), 1500);
+  if (isTouch) setTimeout(() => toast('Drive on the <b>left</b>! Drag the wheel to steer. Tap the yellow button when it appears — everything else is in ☰ CAB.'), 1500);
+  else setTimeout(() => toast('Drive on the <b>left</b>! <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to drive, <kbd>C</kbd> to change camera, <kbd>F1</kbd> for all controls.'), 1500);
 }
 $('start-btn').addEventListener('click', startGame);
 
