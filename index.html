@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>London Cabbie</title>
+  <meta name="description" content="Drive a black cab around London: pick up fares, run the meter, take card or cash." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚕</text></svg>" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">{ "imports": { "three": "./lib/three.module.min.js" } }</script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="hud-left" class="panel">
+      <div class="row"><span id="h-clock">Mon 07:00</span><span id="h-weather">☁️</span></div>
+      <div class="row small"><span id="h-tariff">Tariff 1</span><span id="h-limit">30 mph</span></div>
+      <div class="sep"></div>
+      <div class="row"><span>Takings</span><b id="h-takings">£0.00</b></div>
+      <div class="row small"><span>Card</span><span id="h-card">£0.00</span></div>
+      <div class="row small"><span>Cash in bag</span><span id="h-cash">£0.00</span></div>
+      <div class="row small"><span>Tips</span><span id="h-tips">£0.00</span></div>
+      <div class="row small"><span>Fines & damage</span><span id="h-fines" class="neg">£0.00</span></div>
+      <div class="sep"></div>
+      <div class="row small"><span>Fares</span><span id="h-fares">0</span></div>
+      <div class="row small"><span>Rating</span><span id="h-rating">–</span></div>
+      <div class="row small"><span>Battery</span><span id="h-battery">100%</span></div>
+    </div>
+
+    <div id="street-sign"><div class="ss-name" id="h-street">STRAND</div><div class="ss-code" id="h-code">WC2</div></div>
+    <div id="job" class="panel hidden"><div class="job-title" id="job-title"></div><div class="job-sub" id="job-sub"></div><div class="mood"><span>Mood</span><div class="moodbar"><i id="mood-fill"></i></div></div></div>
+
+    <div id="hud-right">
+      <canvas id="minimap" width="240" height="240"></canvas>
+      <div id="speedo"><span id="h-speed">0</span><small>mph</small><span id="h-gear">D</span></div>
+    </div>
+
+    <div id="led-meter">
+      <div class="lm-top"><span id="lm-state">FOR HIRE</span><span id="lm-tariff">T1</span></div>
+      <div class="lm-fare" id="lm-fare">--.--</div>
+      <div class="lm-bot"><span id="lm-hire" class="hire on">FOR HIRE</span><span id="lm-lock">🔒</span></div>
+    </div>
+
+    <div id="toasts"></div>
+    <div id="prompt"></div>
+    <div id="speech" class="hidden"></div>
+    <div id="replies" class="hidden"></div>
+    <button id="help-btn" title="Controls (F1)">?</button>
+  </div>
+
+  <div id="flash"></div>
+  <div id="payment" class="hidden"></div>
+
+  <div id="bigmap" class="overlay hidden">
+    <div class="bm-inner"><canvas id="bigmap-canvas" width="1300" height="1150"></canvas><div class="bm-legend">🟡 Hailing fare &nbsp; 🏁 Destination &nbsp; ⚡ Charger &nbsp; 📷 Speed camera &nbsp; — press <b>Tab</b> to close</div></div>
+  </div>
+
+  <div id="help" class="overlay hidden">
+    <div class="card">
+      <h2>Controls</h2>
+      <div class="cols">
+        <div>
+          <h3>Driving</h3>
+          <p><kbd>W</kbd>/<kbd>↑</kbd> accelerate · <kbd>S</kbd>/<kbd>↓</kbd> brake<br>Hold brake when stopped to select <b>Reverse</b><br><kbd>A</kbd><kbd>D</kbd>/<kbd>←</kbd><kbd>→</kbd> steer · <kbd>Space</kbd> handbrake</p>
+          <p><kbd>Q</kbd>/<kbd>E</kbd> indicators · <kbd>Z</kbd> hazards · <kbd>H</kbd> horn<br><kbd>N</kbd> headlights · <kbd>V</kbd> wipers · <kbd>C</kbd> camera<br>Drag the mouse to look around the cab<br><kbd>R</kbd> recover the cab if stuck</p>
+        </div>
+        <div>
+          <h3>Being a cabbie</h3>
+          <p>Look for people with their <b>arm up</b> (🟡 on the map). Pull up beside them and stop.</p>
+          <p><kbd>L</kbd> unlock / lock the doors to let them in or out<br><kbd>M</kbd> start the meter (don't forget!) and stop it on arrival<br><kbd>1</kbd>/<kbd>2</kbd> reply when passengers chat<br><kbd>Tab</kbd> map · <kbd>F</kbd> charge at ⚡ · <kbd>Esc</kbd> pause</p>
+          <p>Payment: use the <b>card terminal</b> (key in the fare, pass it through) or <b>count out change</b> from your money bag.</p>
+        </div>
+      </div>
+      <p class="muted">We drive on the <b>left</b>. Red lights and speed cameras will fine you. Smooth driving = better tips.</p>
+      <button class="big-btn" id="help-close">Got it</button>
+    </div>
+  </div>
+
+  <div id="pause" class="overlay hidden">
+    <div class="card narrow">
+      <h2>Paused</h2>
+      <button class="big-btn" id="resume-btn">Resume</button>
+      <button class="big-btn alt" id="pause-help">Controls</button>
+      <label class="opt"><input type="checkbox" id="opt-mute" /> Mute sound</label>
+      <label class="opt"><input type="checkbox" id="opt-markers2" checked /> Show hail markers</label>
+      <button class="big-btn alt" id="end-shift-btn">End shift now</button>
+    </div>
+  </div>
+
+  <div id="summary" class="overlay hidden"><div class="card narrow" id="summary-card"></div></div>
+
+  <div id="title" class="overlay">
+    <div class="title-card">
+      <div class="logo"><span class="taxi-light">TAXI</span><h1>LONDON CABBIE</h1><div class="tag">Do you have The Knowledge?</div></div>
+      <div class="opts">
+        <div class="opt-group">
+          <div class="opt-label">Start your shift</div>
+          <div class="seg" id="shift-seg">
+            <button data-h="7" class="on">☀️ Day 07:00</button>
+            <button data-h="16">🌆 Evening 16:00</button>
+            <button data-h="22">🌙 Night 22:00</button>
+          </div>
+        </div>
+        <label class="opt"><input type="checkbox" id="opt-knowledge" /> <b>Knowledge mode</b> — no sat-nav route, +25% tips</label>
+        <label class="opt"><input type="checkbox" id="opt-markers" checked /> Show markers above hailing passengers</label>
+        <label class="opt"><input type="checkbox" id="opt-low" /> Low graphics (faster)</label>
+      </div>
+      <button class="big-btn start" id="start-btn" disabled>Loading London…</button>
+      <div class="controls-mini"><kbd>WASD</kbd> drive · <kbd>L</kbd> doors · <kbd>M</kbd> meter · <kbd>Tab</kbd> map · <kbd>C</kbd> camera · <kbd>F1</kbd> help</div>
+      <div id="best" class="muted"></div>
+    </div>
+  </div>
+
+  <div id="touch" class="hidden">
+    <div class="t-left"><button data-t="left">◀</button><button data-t="right">▶</button></div>
+    <div class="t-mid"><button data-t="L">🔓</button><button data-t="M">£</button><button data-t="C">🎥</button><button data-t="Tab">🗺</button></div>
+    <div class="t-right"><button data-t="brake">BRAKE</button><button data-t="gas">GO</button></div>
+  </div>
+
+  <noscript>This game needs JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
